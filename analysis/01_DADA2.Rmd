@@ -13,12 +13,43 @@ knitr::opts_chunk$set(echo = TRUE,
                       fig.path = "../figures/01_DADA2/") # send any figure output to this folder 
 ```
 
+# Before you start
+
+## Set my seed 
+```{r set-seed}
+# Any number can be chosen 
+set.seed(238428)
+```
+
+
+
+## Symbolically link data
+
+Run the following commands in your shell to symbolically link the fastq files to the current repository. 
+```{bash sym-link, eval = FALSE, echo TRUE}
+cd git_repos/repo
+mkdir data
+cd data
+mkdir 01_DADA2
+cd 01_DADA2
+mkdir 01_raw_gzipped_fastqs
+
+for FILE in `ls /workdir/in_class_data/SalinityGradient_16S/raw_gzipped_fastqs/*.fastq.gz`
+  do
+  ln -s $FILE /workdir/mls528/git_repos/BIOMI6300_16S_Amplicon_Lesson/data/01_DADA2/01_raw_gzipped_fastqs/
+  done
+```
+
+
+
 # Goals of this file 
 
 1. Use raw fastq files and generate quality plots to assess quality of reads.
 2. Filter and trim out bad sequences and bases from our sequencing files. 
 3. Write out fastq files with high quality sequences. 
 4. Evaluate the quality from our filter and trim. 
+
+
 
 # Load Libraries 
 ```{r load-libraries}
@@ -38,7 +69,7 @@ raw_fastqs_path <- "data/01_DADA2/01_raw_gzipped_fastqs"
 raw_fastqs_path
 
 # What files are in this path? Intuition Check 
-list.files(raw_fastqs_path)
+head(list.files(raw_fastqs_path))
 
 # How many files are there? 
 str(list.files(raw_fastqs_path))
@@ -75,6 +106,7 @@ head(samples)
 
 # Place filtered reads into filtered_fastqs_path
 filtered_fastqs_path <- "data/01_DADA2/02_filtered_fastqs"
+filtered_fastqs_path
 
 # create 2 variables: filtered_F, filtered_R
 filtered_forward_reads <- 
@@ -89,15 +121,32 @@ head(filtered_reverse_reads)
 
 # Filter and Trim Reads
 
+Parameters of filter and trim **DEPEND ON THE DATASET**
+
+- `maxN` = number of N bases. Remove all Ns from the data.  
+- `maxEE` = Quality filtering threshold applied to expected errors. Here, if there's 2 expected errors. It's ok. But more than 2. Throw away the sequence. Two values, first is for forward reads; second is for reverse reads.  
+- `trimLeft` = remove first three basepairs.  
+
 ```{r filter-and-trim}
-?filterAndTrim
+# Assign a vector to filtered reads 
+# trim out poor bases, first 3 bps on F reads
+# write out filtered fastq files 
+filtered_reads <- 
+  filterAndTrim(fwd = forward_reads, filt = filtered_forward_reads,
+              rev = reverse_reads, filt.rev = filtered_reverse_reads,
+              maxN = 0, maxEE = c(2,2), trimLeft = 3,
+              truncQ = 2, rm.phix = TRUE, compress = TRUE) # multithread = TRUE
 
 ```
 
 
 
 
-
+# Session Information 
+```{r session-info}
+# Ensure reproducibility 
+devtools::session_info()
+```
 
 
 
