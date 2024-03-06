@@ -1,0 +1,144 @@
+---
+title: "Phyloseq Preprocessing"
+author: "Marian Schmidt"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      fig.align = "center",
+                      fig.path = "../figures/02_PhyloseqPreProcessing/") # send any figure output to this folder 
+```
+
+
+# Before you start
+
+## Set my seed 
+```{r set-seed}
+# Any number can be chosen 
+set.seed(238428)
+```
+
+
+# Goals for this file 
+
+Here in this file, we are going to process the data to have our final data for alpha and beta diversity analyses! 
+
+We will need to: 
+
+1. Load in ASV table, tax table, and metadata. 
+2. Clean & combine the data into one phyloseq object. 
+3. Clean up the data and remove ASVs/Samples we do not need.  
+      - Remove Control Samples (and their ASVs) *be careful!*  
+      - Remove Chloroplasts.  
+      - Remove Mitochondria.  
+      - Remove samples that do not have "enough" sequencing. 
+5. Write out the final phyloseq object to work with later. :) 
+
+
+# Before you start
+
+## Set my seed 
+```{r set-seed}
+# Any number can be chosen 
+set.seed(238428)
+```
+
+
+## Load Packages
+```{r load-packages}
+# Efficient loading of the packages 
+pacman::p_load(dada2, tidyverse, patchwork, phyloseq, install = FALSE)
+```
+
+
+## Load Data 
+
+We need to load in: 
+
+1. ASV Table 
+2. taxonomy table 
+3. Metadata  
+
+### ASV Table
+```{r load-asv-table}
+# First, let's load in our feature count table
+# Load the ASV counts that was generated in the 01_DADA2 workflow 
+load("data/01_DADA2/ASV_counts.RData")
+# THis data has the ASV names 
+dim(asv_tab)
+asv_tab <- t(asv_tab)
+dim(asv_tab)
+head(asv_tab)[,1:5]
+
+# Fix names 
+sample_names <- colnames(asv_tab)
+samples_fixed <- sapply(strsplit(basename(sample_names), "_"), `[`,1) 
+
+# Now add it to the names
+colnames(asv_tab) <- samples_fixed
+
+
+# Put in a double check 
+stopifnot(dim(asv_tab) == dim(noChimeras_ASV_table))
+```
+
+
+### Taxonomy Table
+```{r load-tax-table}
+taxonomy_tab <- read.table("data/01_DADA2/ASV_taxonomy.tsv",  sep = "\t", skip = 1) 
+head(taxonomy_tab)
+
+colnames(taxonomy_tab) <- c("ASV", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species") 
+head(taxonomy_tab)
+
+# Assign to tax_table()
+tax_mat <- taxonomy_tab %>%
+  tibble::column_to_rownames(., var = "ASV") %>%
+  as.matrix()
+```
+
+### Metdata 
+```{load-metadata}
+# And load our tracking data
+load("data/01_DADA2/track_read_counts.RData") # loads track_counts_df
+head(track_counts_df)
+
+# Fix it up
+track_reads <- 
+  track_counts_df %>%
+  tibble::column_to_rownames(., var = "names") 
+
+head(track_reads) 
+```
+
+## Handoff to phyloseq 
+```{r phyloseq-handoff}
+raw_physeq <- phyloseq(otu_table(asv_tab, taxa_are_rows = TRUE),
+                         sample_data(track_reads),
+                         tax_table(tax_mat))
+raw_physeq
+
+save(raw_physeq, file = paste0("data/raw_physeq.RData"))
+```
+
+
+
+
+
