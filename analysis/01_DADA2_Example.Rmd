@@ -48,9 +48,10 @@ mkdir 01_DADA2
 cd 01_DADA2
 mkdir 01_raw_gzipped_fastqs
 
-for FILE in `ls /workdir/in_class_data/SalinityGradient_16S/raw_gzipped_fastqs/*.fastq.gz`
+#for FILE in `ls /workdir/in_class_data/SalinityGradient_16S/raw_gzipped_fastqs/*.fastq.gz`
+for FILE in `ls /workdir/in_class_data/raw_gzipped_seqs/*.fastq.gz`
   do
-  ln -s $FILE /workdir/mls528/git_repos/BIOMI6300_16S_Amplicon_Lesson/data/01_DADA2/01_raw_gzipped_fastqs/
+  ln -s $FILE /workdir/mls528/git_repos/SalinityGradient_16S/data/01_DADA2/01_raw_gzipped_fastqs/
   done
 ```
 
@@ -81,7 +82,7 @@ Output that we need:
 ```{r load-libraries}
 # Efficient package loading with pacman 
 # Don't forget to install pacman and DT if you don't have it yet. :) 
-pacman::p_load(tidyverse, devtools, dada2, phyloseq, patchwork, DT, # Load ShortRead package for DNA manipulation
+pacman::p_load(tidyverse, devtools, dada2, phyloseq, patchwork, DT, 
                install = FALSE)
 ```
 
@@ -136,7 +137,7 @@ forward_filteredQual_plot_12 + reverse_filteredQual_plot_12
 ```
 
 ### Aggregated Raw Quality Plots 
-```{r raw-aggregate-plot, fig.width=5.5, fig.height=3.5}
+```{r raw-aggregate-plot, fig.width=5.5, fig.height=3.5, eval = FALSE, echo = TRUE}
 # Aggregate all QC plots 
 plotQualityProfile(forward_reads, aggregate = TRUE) + 
   plotQualityProfile(forward_reads, aggregate = TRUE)
@@ -202,7 +203,7 @@ forward_filteredQual_plot_12 + reverse_filteredQual_plot_12
 ```
 
 ## Aggregated Trimmed Plots 
-```{r qc-aggregate-plot, fig.width=5.5, fig.height=3.5}
+```{r qc-aggregate-plot, fig.width=5.5, fig.height=3.5, eval = FALSE, echo = TRUE}
 # Aggregate all QC plots 
 plotQualityProfile(filtered_forward_reads, aggregate = TRUE) + 
   plotQualityProfile(filtered_reverse_reads, aggregate = TRUE)
@@ -415,7 +416,7 @@ data.frame(Seq_Length_NoChim = nchar(getSequences(noChimeras_ASV_table))) %>%
 
 # Track the read counts
 Here, we will look at the number of reads that were lost in the filtering, denoising, merging, and chimera removal. 
-```{r track_reads, fig.width=4.5, fig.height=4}
+```{r track_reads, fig.width=6, fig.height=4}
 # A little function to identify number seqs 
 getN <- function(x) sum(getUniques(x))
 
@@ -476,7 +477,7 @@ taxa_addSpecies <-
 # Inspect the taxonomy 
 taxa_print <- taxa_addSpecies # Removing sequence rownames for display only
 rownames(taxa_print) <- NULL
-View(taxa_print)
+#View(taxa_print)
 ```
 
 
@@ -569,8 +570,8 @@ Now, we will write the files! We will write the following to the `data/01_DADA2/
 2. `ASV_counts_withSeqNames.tsv`: This is generated with the data object in this file known as `noChimeras_ASV_table`. ASV headers include the *entire* ASV sequence ~250bps.  In addition, we will save this as a .RData object as `data/01_DADA2/noChimeras_ASV_table.RData` as we will use this data in `analysis/02_Taxonomic_Assignment.Rmd` to assign the taxonomy from the sequence headers.  
 3. `ASVs.fasta`: A fasta file output of the ASV names from `ASV_counts.tsv` and the sequences from the ASVs in `ASV_counts_withSeqNames.tsv`. A fasta file that we can use to build a tree for phylogenetic analyses (e.g. phylogenetic alpha diversity metrics or UNIFRAC dissimilarty).  
 4. We will also make a copy of `ASVs.fasta` in `data/02_TaxAss_FreshTrain/` to be used for the taxonomy classification in the next step in the workflow.  
-5. 
-5. `track_read_counts.RData`: To track how many reads we lost throughout our workflow that could be used and plotted later. We will add this to the metadata in `analysis/02_Taxonomic_Assignment.Rmd`.   
+5. Write out the taxonomy table
+6. `track_read_counts.RData`: To track how many reads we lost throughout our workflow that could be used and plotted later. We will add this to the metadata in `analysis/02_Taxonomic_Assignment.Rmd`.   
 
 
 ```{r save-files}
