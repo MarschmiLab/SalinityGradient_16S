@@ -89,7 +89,8 @@ Output that we need:
 ```{r load-libraries}
 # Efficient package loading with pacman 
 # Don't forget to install pacman and DT if you don't have it yet. :) 
-pacman::p_load(tidyverse, devtools, dada2, phyloseq, patchwork, DT, 
+pacman::p_load(tidyverse, BiocManager, devtools, dada2, 
+               phyloseq, patchwork, DT, iNEXT, vegan,
                install = FALSE)
 ```
 
@@ -140,15 +141,25 @@ reverse_filteredQual_plot_12 <- plotQualityProfile(reverse_reads[random_samples]
 
 # Plot them together with patchwork
 forward_filteredQual_plot_12 + reverse_filteredQual_plot_12
-
 ```
 
 ### Aggregated Raw Quality Plots 
 ```{r raw-aggregate-plot, fig.width=5.5, fig.height=3.5}
 # Aggregate all QC plots 
-plotQualityProfile(forward_reads, aggregate = TRUE) + 
+preQC_aggregate_plot <- 
+  plotQualityProfile(forward_reads, aggregate = TRUE) + 
   plotQualityProfile(forward_reads, aggregate = TRUE)
+
+# Show the plot
+preQC_aggregate_plot
 ```
+
+[Insert some interpretation regarding the quality of the raw QC plots]
+
+Here, we see that the plots are showing the standard Illumina output: The quality is higher at the beginning of the read and slowly gets worse and worse as the read progresses. This is typical of Illumina sequencing because of phasing. We also see that there's a slightly lower quality in the reverse reads due to the less efficient chemistry. 
+
+**Note:** The first few bases at the beginning of the forward reads have a VERY LOW quality base. Take a look at the multiQC report to explore the data and confirm what you see here in the dada2 plot. 
+
 
 ## Prepare a placeholder for filtered reads 
 ```{r prep-filtered-sequences}
@@ -174,26 +185,51 @@ head(filtered_reverse_reads)
 
 # Filter and Trim Reads
 
-Parameters of filter and trim **DEPEND ON THE DATASET**
+Parameters of filter and trim **DEPEND ON THE DATASET**. The things to keep in mind are:  
+- The library preparation: *Are the primers included in the sequence? If so, they need to be trimmed out in this step*.  
+- What do the above quality profiles of the reads look like? *If they are lower quality, it is highly recommended to use `maxEE = c(1,1)`.*  
+- Do the reads dip suddenly in their quality? If so, explore `trimLeft` and `truncLen`
 
-- `maxN` = number of N bases. Remove all Ns from the data.  
-- `maxEE` = Quality filtering threshold applied to expected errors. Here, if there's 2 expected errors. It's ok. But more than 2. Throw away the sequence. Two values, first is for forward reads; second is for reverse reads.  
-- `trimLeft` = remove first three basepairs.  
+Check out more of the parameters using `?filterAndTrim` to bring up the help page and do some googling about it. Some notes on two examples are below, with a description of a few of the parameters:
+
+1. **In class dataset**: This salinity gradient dataset was generated with the library preparation described by [Kozich et al., 2013 AEM](https://doi.org/10.1128/AEM.01043-13), the reads maintained high Phred Scores (above 30, even more typically above ~34) all the way through to the end of the sequence. Therefore, we will not truncate the data for this dataset and we will use a less stringent `maxEE = c(2,2)`.  
+2. **Lower quality datasets**However, if the sequence quality was lower, it's recommended to use `maxEE = c(1,1)` as is in the commented out example below. In the other example (not executed but the code is shown) the dataset had the primers in their sequence (as they were prepared using the Illumina 2-step PCR protocol and therefore include the primer in the sequence. In addition with trimming the My reverse reads are of much lower quality, which is typical, so I truncated these at a lower value, where the Phred Scores drop below about 30. The values of these parameters are going to be highly specific to your own analysis, but you can also play it safe and go with the default values listed on the official DADA2 pipeline.
+
+- `maxEE` is a quality filtering threshold applied to expected errors. Here, if there's 2 expected errors. It's ok. But more than 2. Throw away the sequence. Two values, first is for forward reads; second is for reverse reads.  
+- `trimLeft` can be used to remove the beginning bases of a read (e.g. to trim out primers!) 
+- `truncLen` can be used to trim your sequences after a specific base pair when the quality gets lower. Though, please note that this will shorten the ASVs! For example, this can be used when the quality of the sequence suddenly gets lower, or clearly is typically lower. So, if the quality of the read drops below a phred score of 25 (on the y-axis of the plotQualityProfile above, which indicates ~99.5% confidence per base).  
+- `maxN` the number of N bases. Here, using ASVs, we should ALWAYS remove all Ns from the data.  
 
 ```{r filter-and-trim}
 # Assign a vector to filtered reads 
 # trim out poor bases, first 3 bps on F reads
 # write out filtered fastq files 
+# Here, in this class dataset, the Kozich et al.(2013) AEM
+      # Link to paper: https://doi.org/10.1128/AEM.01043-13
+# Therefore, we do not need to trim the primers, because they were not sequenced
 filtered_reads <- 
   filterAndTrim(fwd = forward_reads, filt = filtered_forward_reads,
               rev = reverse_reads, filt.rev = filtered_reverse_reads,
               maxN = 0, maxEE = c(2,2), trimLeft = 3,
               truncQ = 2, rm.phix = TRUE, compress = TRUE, multithread = TRUE)
+
+
+##### Another example of a filterAndTrim Step 
+# This dataset is from sequences generated by Cornell Sequencing Facility using  
+# the typical Earth Microbiome protocol mentioned in their 16S SOP:
+        # https://earthmicrobiome.org/protocols-and-standards/16s/
+# Here, the library prep was the standard Illumina 2-step PCR preparation and following
+# In this example, the primer sequences ARE in the sequences and must be trimmed using trimLeft
+#
+#filterAndTrim(forward_reads, filtered_forward_reads,
+#              reverse_reads, filtered_reverse_reads,
+#              truncLen = c(240,220), trimLeft = c(19,20),
+#              maxN = 0, maxEE = c(1,1), truncQ = 2, 
+#              rm.phix = TRUE, compress = TRUE, 
+#              multithread = TRUE)
 ```
 
 # Assess Trimmed Read Quality 
-
-
 
 ```{r filterTrim-quality-plots,  fig.width=12, fig.height=8}
 # Plot the 12 random samples after QC
@@ -212,9 +248,18 @@ forward_filteredQual_plot_12 + reverse_filteredQual_plot_12
 ## Aggregated Trimmed Plots 
 ```{r qc-aggregate-plot, fig.width=5.5, fig.height=3.5}
 # Aggregate all QC plots 
-plotQualityProfile(filtered_forward_reads, aggregate = TRUE) + 
+postQC_aggregate_plot <- 
+  plotQualityProfile(filtered_forward_reads, aggregate = TRUE) + 
   plotQualityProfile(filtered_reverse_reads, aggregate = TRUE)
+
+# Show the plot
+postQC_aggregate_plot
 ```
+
+[Insert some interpretation regarding the quality of the raw QC plots]
+
+Here, we see the sequences are improved from before. The very low quality that we saw in the pre-QC plots is mostly gone. If we wanted, we could trim more of the forward sequence. However, the quality here is above a phred score of 30, which I feel ok with. 
+
 
 ## Stats on read output from `filterAndTrim`
 
@@ -237,13 +282,27 @@ filtered_df %>%
 - Should you play with the paratmeters in `filterAndTrim()` more?  If so, which parameters? 
 
 
+### Visualize QC differences in plot 
+```{r pre-post-QC-plot, fig.width=6, fig.height=5.5}
+# Plot the pre and post together in one plot
+preQC_aggregate_plot / postQC_aggregate_plot
+```
+
+Here we can see how many total reads were removed from the QC (comparing the red numbers in the bottom of each plot.) We'd like to see the QC get better. 
+
+
 # Error Modelling 
 
-**Note every sequencing run needs to be run separately!** The error model *MUST* be run separately on each illumina dataset. If you'd like to combine the datasets from multiple sequencing runs, you'll need to do the exact same `filterAndTrim()` step *AND*, very importantly, you'll need to have the same primer and ASV length expected by the output.
+**Note every sequencing run needs to be run separately!** The error model *MUST* be run separately on each Illumina dataset. This is because every Illumina run is different, even if the flow cell and DNA/samples are the same. If you'd like to combine the datasets from multiple Illumina sequencing runs, you'll need to do the exact same `filterAndTrim()` step *AND*, very importantly, you'll need to have the same primer/ASV length/16S location expected by the output. 
 
-Infer error rates for all possible transitions within purines and pyrimidines (A<>G or C<>T) and transversions between all purine and pyrimidine combinations.  
+*But wait: what contributes to sequencing error in different sequencing runs and why do we need to model errors separately per run with learnErrors() in dada2?* Remember the core principles of how Illumina seuqencing works! Some things that contribute to this are:  
 
-Error model is learned by alternating estimation of the error rates and inference of sample composition until they converge. 
+-Different timings for when clusters go out of sync (drop in quality at end of reads that's typical of Illumina sequencing)
+- The cluster density is impossible to exactly replicate. Therefore, the cluster density (and therefore sequence quality) will always be different between sequencing runs (even if it's the same person/samples/sequencing facility!). 
+-PhiX spike-in will also vary between runs, even if we try to make it the same! Therefore, the amount of heterogeneity on the flow cell will also be different, impacting the quality.  
+-Different locations on the flow cell can be impacted differently between runs. Perhaps an air bubble can get in, the cluster density happened to be higher/lower on a different run/flow cell.
+
+Ok, that said. Let's now infer error rates for all possible transitions within purines and pyrimidines (A<>G or C<>T) and transversions between all purine and pyrimidine combinations. The error model is learned by alternating estimation of the error rates and inference of sample composition until they converge. This specifically:  
 
 1. Starts with the assumption that the error rates are the maximum (takes the most abundant sequence ("center") and assumes it's the only sequence not caused by errors).  
 2. Compares the other sequences to the most abundant sequence. 
@@ -470,13 +529,13 @@ track_counts_df %>%
 
 Here, we will use the silva database version 138!
 ```{r assign-tax}
-# The next line took 2 mins to run
+# Classify the ASVs against a reference set using the RDP Naive Bayesian Classifier described by Wang et al., (2007) in AEM
 taxa_train <- 
   assignTaxonomy(noChimeras_ASV_table, 
                  "/workdir/in_class_data/taxonomy/silva_nr99_v138.1_train_set.fa.gz", 
                  multithread=TRUE)
 
-# the next line took 3 minutes 
+# Add the genus/species information 
 taxa_addSpecies <- 
   addSpecies(taxa_train, 
              "/workdir/in_class_data/taxonomy/silva_species_assignment_v138.1.fa.gz")
