@@ -2,7 +2,18 @@
 title: "Phyloseq PreProcessing"
 author: "Marian Schmidt"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
 editor_options: 
   chunk_output_type: console
 ---
@@ -138,6 +149,133 @@ raw_physeq
 # Save this raw phyloseq object 
 save(raw_physeq, file = "data/02_PreProcessing/raw_physeq.RData")
 ```
+
+# Clean up the data
+
+Remove: 
+
+1. Chloroplasts
+2. mitochondria  
+
+```{r rm-mitos-chloros}
+# Remind myself of tax table 
+#View(tax_mat)
+
+# Make new physeq without chloroplasts
+noChloros_physeq <- 
+  raw_physeq %>% 
+  # rm chloroplasts
+  subset_taxa(Order != "Chloroplast" | is.na(Order))
+  
+# How many taxa were chloroplasts? 
+num_chloro_ASVs <- ntaxa(raw_physeq) - ntaxa(noChloros_physeq)
+num_chloro_ASVs
+
+# Intuition chek 
+#noChloros_physeq %>%
+#  tax_table() %>%
+#  data.frame() %>%
+#  View()
+
+# remove mitochondria 
+noChlorosMitos_physeq <- 
+  noChloros_physeq %>%
+  subset_taxa(Family != "Mitochondria" | is.na(Family))
+
+# How many mitochondrial ASVs? 
+num_mito_ASVs <- ntaxa(noChloros_physeq) - ntaxa(noChlorosMitos_physeq)
+num_mito_ASVs
+
+noChlorosMitos_physeq
+
+# How many total asvs were removed from chloros and mitos 
+ntaxa(raw_physeq) - ntaxa(noChlorosMitos_physeq)
+# proportion of asvs kept? 
+ntaxa(noChlorosMitos_physeq)/ntaxa(raw_physeq)
+```
+
+# Evaulate and remove the control samples 
+
+Take a look at the negative controls and then make a decision about whether or not to remove the ASVs that we found in our controls 
+
+1. Negative controls 
+2. ASVs found within the negative controls and their distribution in the samples. 
+3. Evaluate the mock community 
+
+
+## Negative Controls 
+```{r neg-controls}
+# create a vector of samples that were negative controls 
+control_samples <- c("WaterControl", "022um-Control", 
+                     "3um-Control", "DNA-Ext-Control")
+
+# Make a new phyloseq object of only the control samples 
+control_physeq <- 
+  noChlorosMitos_physeq %>%
+  subset_samples(., names %in% control_samples) %>%
+  # force remove ASVs with 0 counts 
+  prune_taxa(taxa_sums(.) > 0, .)
+
+control_physeq
+
+# vector of control asvs
+control_ASVs <- 
+  control_physeq %>%
+  tax_table() %>%
+  data.frame() %>%
+  dplyr::select(ASV) %>%
+  as.vector()
+
+# Visualize raw abundance values of control ASVs
+control_physeq %>%
+  plot_bar(., "ASV", fill = "ASV")
+
+############# Check the control ASVs in the samples 
+# Make new phyloseq object with only the control ASVs and ALL samples 
+controlASV_physeq <- 
+  noChlorosMitos_physeq %>%
+  subset_taxa(., ASV %in% control_ASVs$ASV)
+
+# Inspect it 
+controlASV_physeq
+
+# Let's take a look at the abundances 
+controlASV_physeq %>%
+  plot_bar(., "ASV", fill = "ASV", facet_grid = Sample_or_Control~.)
+
+# Check tax of ASV_3
+#controlASV_physeq %>%
+#  tax_table() %>%
+#  data.frame() %>%
+#  View()
+
+# Would only like to keep ASV_18 and ASV_56, everything else is trash
+controlASVs_toREMOVE <- dplyr::setdiff(control_ASVs$ASV, c("ASV_18", "ASV_56"))
+# double check 
+length(controlASVs_toREMOVE)
+
+### Make my new phloseq object 
+noControlsChlorosMitos_physeq <- 
+  noChlorosMitos_physeq %>%
+  # Actually remove the control ASVs (except 18, 56)
+  subset_taxa(., !(ASV %in% controlASVs_toREMOVE)) %>%
+  # Remove control samples 
+  subset_samples(., !(names %in% control_samples))
+
+# Inspect no controls object 
+noControlsChlorosMitos_physeq
+
+# After filtering, how many ASVs were removed? 
+total_ASVs_rm <- ntaxa(raw_physeq) - ntaxa(noControlsChlorosMitos_physeq)
+total_ASVs_rm
+```
+
+# Session Information 
+```{r session-info}
+# Ensure reproducibility 
+devtools::session_info()
+```
+
 
 
 
