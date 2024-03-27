@@ -9,7 +9,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
-                      fig.path = "../figures/04_Biodiversity")
+                      fig.path = "../figures/04_Biodiversity/")
 ```
 
 # Setting the Environment 
