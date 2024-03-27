@@ -135,3 +135,49 @@ ggiNEXT(iNEXT_data, type = 1, facet.var = "Order.q") +
   theme(legend.position = "none")
 ```
 
+
+# Manually plot Diversity 
+
+## Rarefaction
+```{r iNEXT-manual}
+
+iNEXT_manual_df <- 
+  iNEXT_data$iNextEst$size_based %>%
+  dplyr::rename(names = Assemblage) %>%
+  # Fix the samples names 
+  mutate(names = gsub(names, pattern = "[.]", replace = "-"),
+         names = gsub(names, pattern = "X", replace = "")) %>%
+  # join with metadata 
+  left_join(., metadata_df, by = "names") %>%
+  # Add colors to data frame
+  left_join(., data.frame(station_colors = station_colors,
+                          station = names(station_colors)),
+            by = "station") 
+# Inspect 
+dim(iNEXT_manual_df)
+str(iNEXT_manual_df)
+
+# Plot it - Rarefaction Curve 
+iNEXT_manual_df %>%
+  # Filter out rows that are calcaulted by rarefaction from iNEXT
+  dplyr::filter(Method == "Extrapolation") %>%
+  # Make the actual rarefaction plot with 
+  # the # of sequences on the x-axis and diversity on the y-axis
+  # You can choose to pick one diversity value or plot all three 
+  ggplot(aes(x = m, y= qD, color = station, group = names)) + 
+  # line 
+  geom_line() + 
+  #geom_point() + 
+  # Challenge: Facet with the station
+  facet_grid(Order.q~station, scales = "fixed") + 
+  scale_color_manual(values = station_colors) + 
+  theme(legend.position = "bottom")
+```
+
+
+
+
+
+
+
+
