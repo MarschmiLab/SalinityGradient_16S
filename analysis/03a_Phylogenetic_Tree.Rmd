@@ -31,7 +31,7 @@ raw_preprocessed_physeq
 
 This fasta file will be used to create our alignment in MAFFT
 
-```{r create-preprocessed-fast}
+```{r create-preprocessed-fasta}
 # pull out ASV seqs and ASV names 
 asv_seq_df <- 
   raw_preprocessed_physeq@tax_table %>%
