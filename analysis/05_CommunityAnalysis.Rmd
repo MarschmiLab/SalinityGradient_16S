@@ -2,7 +2,18 @@
 title: "Between Sample (Beta) Diversity of Microbes along a Salinity Gradient"
 author: "Marian Schmidt"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
 editor_options: 
   chunk_output_type: console
 ---
@@ -18,16 +29,22 @@ knitr::opts_chunk$set(echo = TRUE,
 2. Evaluate sequencing depth and remove sample.  
 3. Normalize the read counts between samples.  
 4. Calculate community dissimilarities. Numbers between 0 and 1. If 0, completely similar versus if they are 1, then they're completely dissimilar.   
-    a. *Sorensen*: Shared Species as a binary value: Abundance-unweighted 
-    b. *Bray-Curtis*: Shared Abundant species: Abundance-weighted
-    c. *(Abundance-)Weighted UNIFRAC*: Consider Abundant Species and where they fall on the tree  
+    a. **Sorensen**: Shared Species as a binary value: Abundance-unweighted 
+    b. **Bray-Curtis**: Shared Abundant species: Abundance-weighted
+    c. **(Abundance-)Weighted UNIFRAC**: Consider Abundant Species and where they fall on the tree  
 5. Visualize the community data with two unconstrained Ordinations:  
-    a. *PCoA*: Linear Method. Eigenvalue = how much variation is explained by each axis. Choose to view axis 1, 2, 3, etc. and plot them together.  
-    b. *NMDS*: Non-linear. Smush multiple Dimensions into 2 or 3 axes. Need to report Stress value (ideally <0.15).  
+    a. **PCoA**: Linear Method. Eigenvalue = how much variation is explained by each axis. Choose to view axis 1, 2, 3, etc. and plot them together.  
+    b. **NMDS**: Non-linear. Smush multiple Dimensions into 2 or 3 axes. Need to report Stress value (ideally <0.15).  
 6. Run statistics with PERMANOVA and betadispR. 
 
 
 # Setup 
+
+## Set the seed 
+```{r set-seed}
+# Any number can be chosen 
+set.seed(238428)
+```
 
 ## Load Libraries
 ```{r load-libraries}
@@ -170,8 +187,10 @@ scaled_TotalSeqs_df %>%
 
 Exploratory analyses from Paliy & Shankar (2016) paper, which is using unconstrained ordination methods like PCoA. 
 
-## Sorensen PCoA
-```{r sorensen-pcoa}
+## PCoA 
+
+### Sorensen
+```{r sorensen-PCoA}
 # Calculate sorensen dissimilarity: Abundance-unweighted of shared taxa
 scaled_soren_pcoa <-  
   ordinate(
@@ -182,40 +201,226 @@ scaled_soren_pcoa <-
 #str(scaled_soren_pcoa)
 
 # Plot the ordination 
-plot_ordination(
+soren_station_pcoa <- plot_ordination(
   physeq = scaled_rooted_physeq,
   ordination = scaled_soren_pcoa,
   color = "station",
+  shape = "station",
   title = "Sorensen PCoA") +
+  geom_point(size=5, alpha = 0.5, aes(color = station)) +
+  scale_shape_manual(values = c(15,16,17,18, 19, 20)) +
   scale_color_manual(values = station_colors) + 
   theme_bw()
+# Show the plot 
+soren_station_pcoa
+```
 
-# PERMANOVA of sorensen 
-# make a new object that has sorensen dissimilarity matrix 
-sorensen_distance <- 
-  phyloseq::distance(scaled_rooted_physeq, method = "bray", binary = TRUE)
-str(sorensen_distance)
+*Note that I have removed the PERMANOVA test to below the ordinations. We will come back to it later!*
 
-# metadata 
-metadata <- 
-  scaled_rooted_physeq %>%
-  sample_data %>%
-  data.frame()
+Here, we are evaluating the shared taxa by presence/absence (abundance-unweighted) in the Sorensen metric. 
 
-# Actually run the PERMANOVA 
-## Testing if the centroids of the data are similar or different? 
-adonis2(sorensen_distance ~ station, data = metadata)
+Note that there is a weird arch or horseshoe-effect in the data. This is likely because we have complete species turnover between our stations. If you have this in your data, please take a look at the paper by [Morton et al., 2017](https://journals.asm.org/doi/10.1128/msystems.00166-16). More on this in NMDS...
+
+Note that:  
+
+- Axis 1 = ~21% of variation  
+- Axis 2 = ~15% of variation 
+
+This means we explain 36% of the variation in the data in these two axes. 
+
+
+
+### Bray
+```{r bray-PCoA}
+# Calculate the BC distance
+scaled_BC_pcoa <- 
+  ordinate(
+    physeq = scaled_rooted_physeq,
+    method = "PCoA",
+    distance = "bray")
+
+# Plot the PCoA
+bray_station_pcoa <- 
+  plot_ordination(
+    physeq = scaled_rooted_physeq,
+    ordination = scaled_BC_pcoa,
+    color = "station",
+    shape = "station",
+    title = "Bray-Curtis PCoA") +
+  geom_point(size=5, alpha = 0.5, aes(color = station)) +
+  scale_shape_manual(values = c(15,16,17,18, 19, 20)) +
+  scale_color_manual(values = c(station_colors)) + 
+  theme_bw()
+bray_station_pcoa
+```
+
+Here, we are evaluating the shared taxa and then weighting them by their abundances, which provides more influence for species that are more abundant. 
+
+Note that there is a weird arch or horseshoe-effect in the data. This is likely because we have complete species turnover between our stations. If you have this in your data, please take a look at the paper by [Morton et al., 2017](https://journals.asm.org/doi/10.1128/msystems.00166-16). More on this in NMDS...
+
+Note that:  
+
+- Axis 1 = ~28% of variation  
+- Axis 2 = ~20% of variation 
+
+This means we explain 48% of the variation in the data in these two axes, which is more than the previous plot with the Sorensen Dissimilarity. Abundance does seem to have an influence!!
+
+It also looks like the samples are now separating more within each group than they did a bit more with Sorensen. Please note this with how the Copano West samples are looking between the Bray-Curtis and the Sorensen plots. 
+
+
+
+### Weighted Unifrac
+```{r wUnifrac-PCoA}
+# Calculate the BC distance
+scaled_wUNI_pcoa <- 
+  ordinate(
+    physeq = scaled_rooted_physeq,
+    method = "PCoA",
+    distance = "wunifrac")
+
+# Plot the PCoA
+wUNI_station_pcoa <- 
+  plot_ordination(
+    physeq = scaled_rooted_physeq,
+    ordination = scaled_wUNI_pcoa,
+    color = "station",
+    shape = "station",
+    title = "Weighted Unifrac PCoA") +
+  geom_point(size=5, alpha = 0.5, aes(color = station)) +
+  scale_shape_manual(values = c(15,16,17,18, 19, 20)) +
+  scale_color_manual(values = c(station_colors)) + 
+  theme_bw()
+wUNI_station_pcoa
+```
+
+Here, we are evaluating the shared taxa and then weighting them by their abundances, which provides more influence for species that are more abundant. 
+
+Note that there is a weird arch or horseshoe-effect in the data. This is likely because we have complete species turnover between our stations. If you have this in your data, please take a look at the paper by [Morton et al., 2017](https://journals.asm.org/doi/10.1128/msystems.00166-16). More on this in NMDS...
+
+Note that:   
+
+- Axis 1 = ~41% of variation  
+- Axis 2 = ~29% of variation 
+
+This means we explain *70*% of the variation in the data in these two axes (!!!), which is significantly more than the previous plots with the taxonomic dissimilarity measures. Here, phylogeny seems to be very important! This means that taxa that are abundant are found in different places in the phylogenetic tree. Therefore, the evoultionary distances (aka the branch lengths) and their abundances seem to have a major influence!!
+
+It also looks like the samples are now separating more within each group than they did a bit more with Sorensen. Please note this with how the Copano West samples are looking between the Bray-Curtis and the Sorensen plots. 
+
+
+## Combine PCoAs
+
+Let's plot all three together into one plot to have a concise visualization of the three metrics. 
+```{r pcoa-together, fig.width=8, fig.height=3.5}
+(soren_station_pcoa + theme(legend.position = "none")) + 
+  (bray_station_pcoa + theme(legend.position = "none")) + 
+    (wUNI_station_pcoa + theme(legend.position = "none"))
 ```
 
 
+## NMDS 
 
-## Bray-Curtis PCoA  
+### Weighted Unifrac
 
-## Weighted Unifrac PCoA 
+Since we did 3 of the dissimilarity metrics for the PCoA, let's just plot one example of them for the NMDS plotting. Here, we will use weighted Unifrac 
+```{r wUnifrac-NMDS}
+# Calculate the Weighted Unifrac distance
+scaled_wUNI_nmds <- 
+  ordinate(
+    physeq = scaled_rooted_physeq,
+    method = "NMDS",
+    distance = "wunifrac")
 
-## Bray-Curtis NMDS 
+# Plot the PCoA
+wUNI_station_nmds <- 
+  plot_ordination(
+    physeq = scaled_rooted_physeq,
+    ordination = scaled_wUNI_nmds,
+    color = "station",
+    shape = "station",
+    title = "Weighted Unifrac NMDS") +
+  geom_point(size=5, alpha = 0.5, aes(color = station)) +
+  scale_shape_manual(values = c(15,16,17,18, 19, 20)) +
+  scale_color_manual(values = c(station_colors)) + 
+  theme_bw()
+wUNI_station_nmds
+```
 
-# Test for Statistical Significance with PERMANOVA & betadispR 
+We can see from above the plot that the stress value is ~0.15, which is just barely at the limit of the acceptable stress value. And, It seems important to emphasize that the PCoA and the NMDS plot both look pretty similar! 
+
+In this case, I would always prefer to report the PCoA results because they are linear and provide a lot more post-hoc analyses to follow up with. In addition, it's helpful to only have 2 axes of variation and show how much variation is explained. 
+
+```{r combined-wUnifrac, fig.width=6, fig.height=3.5}
+(wUNI_station_pcoa + theme(legend.position = "none")) + 
+  (wUNI_station_nmds + theme(legend.position = "none"))
+```
+
+
+# Statistical Significance Testing 
+
+## PERMANOVA 
+```{r PERMANOVA}
+# Calculate all three of the distance matrices
+scaled_sorensen_dist <- phyloseq::distance(scaled_rooted_physeq, method = "bray", binary = TRUE)
+scaled_bray_dist <- phyloseq::distance(scaled_rooted_physeq, method = "bray")
+scaled_wUnifrac_dist <- phyloseq::distance(scaled_rooted_physeq, method = "wunifrac")
+
+# make a data frame from the sample_data
+# All distance matrices will be the same metadata because they 
+# originate from the same phyloseq object. 
+metadata <- data.frame(sample_data(scaled_rooted_physeq))
+
+# Adonis test
+# In this example we are testing the hypothesis that the five stations
+# that were collected have different centroids in the ordination space 
+# for each of the dissimilarity metrics, we are using a discrete variable 
+adonis2(scaled_sorensen_dist ~ station, data = metadata)
+adonis2(scaled_bray_dist ~ station, data = metadata)
+adonis2(scaled_wUnifrac_dist ~ station, data = metadata)
+```
+
+Note that:  
+
+- R2 = the percent variation explained. 
+- F = the F-Statistic, which represents the importance value. 
+- Pr(>F) = the pvalue 
+
+
+Above, we see that the most variation is explained by the weighted unifrac, which explains ~45% of the variation in the data and also has the highest F-statistic.
+
+
+
+```{r PERMANOVA-multiVariable}
+# We might also care about other variables
+# Here, we will add date and fraction as variables
+# multiplicative model ORDER MATTERS! 
+adonis2(scaled_sorensen_dist ~ station * date * fraction, data = metadata)
+adonis2(scaled_bray_dist ~ station * date * fraction, data = metadata)
+# Note that the ORDER MATTERS!
+adonis2(scaled_wUnifrac_dist ~ station * date * fraction, data = metadata)
+adonis2(scaled_wUnifrac_dist ~ date * station * fraction, data = metadata)
+```
+
+We can also run tests that include additive (+) or multipliciatve models, which include the interaction term between variables. 
+
+## BetaDispR
+
+The PERMANOVA is sensitive to variance/dispersion in the data. Therefore, we need to run a homogeneity of dispersion test to test for the sensitivity of our PERMANOVA results to variance. 
+```{r betadispR}
+# Homogeneity of Disperson test with beta dispr
+# Sorensen 
+beta_soren_station <- betadisper(scaled_sorensen_dist, metadata$station)
+permutest(beta_soren_station)
+
+# Bray-curtis 
+beta_bray_station <- betadisper(scaled_bray_dist, metadata$station)
+permutest(beta_bray_station)
+
+# Weighted Unifrac 
+beta_bray_station <- betadisper(scaled_wUnifrac_dist, metadata$station)
+permutest(beta_bray_station)
+```
+
+Above, our variance is impacted by station. Therefore, we need to be very careful about what we conclude about our data. 
 
 # Session Information 
 For reproducibility 
