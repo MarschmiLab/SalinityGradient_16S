@@ -140,6 +140,65 @@ It matches Protoeuglena noctilucae genome assembly, organelle: mitochondrion wit
 
 This is definitely a contaminant that needs to be removed from the dataset. Let's go ahead and do that... 
 
+# Prune ASV_456
+```{r prune-ASV456}
+# Function from Joey McMurdie: https://github.com/joey711/phyloseq/issues/652
+pop_taxa = function(physeq, badTaxa){
+  allTaxa <-  taxa_names(physeq)
+  allTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(allTaxa, physeq))}
+
+# Let's use the pop_taxa function :) 
+# Recreate a phyloseq object without ASV_456
+unrooted_physeq_rm456 <- 
+  unrooted_physeq %>%
+  pop_taxa(., "ASV_456")
+
+# Intuition Check
+ntaxa(unrooted_physeq) - ntaxa(unrooted_physeq_rm456) 
+
+# Visually inspect 
+ggtree(unrooted_physeq_rm456) + 
+  geom_tippoint(mapping = aes(color = Kingdom))
+```
+
+# Midroot Tree
+```{r midroot-tree}
+# Is the tree rooted?
+new_unrooted_tree <-phy_tree(unrooted_physeq_rm456)
+is.rooted(new_unrooted_tree)
+
+# Let's midpoint root the tree
+midpoint_rooted_tree <- midpoint.root(new_unrooted_tree)
+
+# Is the new tree rooted?
+is.rooted(midpoint_rooted_tree)
+
+# Assign to a new phyloseq object: merging subsetted phyloseq with the new rooted tree
+
+# 1. Create the phyloseq object without ASV_456
+physeq_rm456 <- 
+  raw_preprocessed_physeq %>%
+  subset_taxa(ASV != "ASV_456")
+
+# Merge tree with the new physeq_rm456
+midroot_physeq_rm456 <- 
+  merge_phyloseq(physeq_rm456, midpoint_rooted_tree)
+midroot_physeq_rm456
+
+# Quick inspection of tree 
+ggtree(midroot_physeq_rm456) + 
+  geom_tippoint(mapping = aes(color = Kingdom))
+```
+
+
+# Save to a new phyloseq object
+```{r save-physeq}
+# Save both phyloseq objects with our tree object to one .RData file 
+save(list = c("unrooted_physeq_rm456", "midroot_physeq_rm456"),
+     file = "data/03_Phylogenetic_Tree/phytree_preprocessed_physeq.RData")
+```
+
 # Session Information 
 ```{r session-info}
 # Ensure reproducibility 
