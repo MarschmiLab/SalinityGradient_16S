@@ -1,6 +1,6 @@
 # Goals of this folder 
 
-Date: Wed. February 26th, 2024 
+Date: Wed. February 26th, 2025
 
 Question: Is my data good enough? 
 
