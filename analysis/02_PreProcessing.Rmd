@@ -1,6 +1,6 @@
 ---
-title: "Phyloseq PreProcessing"
-author: "Marian Schmidt"
+title: "Pre-processing with phyloseq"
+author: "Mar Schmidt"
 date: "`r Sys.Date()`"
 output:
   html_document: 
@@ -21,129 +21,189 @@ editor_options:
 ```{r setup}
 knitr::opts_chunk$set(echo = TRUE,
                       fig.align = "center",
-                      fig.path = "../figures/02_PreProcessing/") # send any figure output to this folder 
-```
-
-
-# Load libraries 
-```{r load-libraries}
-#devtools::install_github("joey711/phyloseq")
-pacman::p_load(devtools, phyloseq, tidyverse, dada2, install = FALSE)
+                      # send any figure output to this folder 
+                      fig.path = "../figures/02_PreProcessing/") 
 ```
 
 # Goals
 
-Here, we will process the data into a phyloseq object. 
+The goal with this file is to pre-process any other contaminants and unexpected ASVs from our sample. We will need to: 
 
-- ASV table 
-- Taxonomy Table 
-- Track Reads (metadata)
-
-Then, we will remove the following: 
-
-1. Remove Chloroplasts
+1. Create a **S4** R data object, which in this case is known as a phyloseq, object from the `asv_table`, `tax_table`, and metadata. This will give us one data object to work with moving forward. :) 
+1. Remove Chloroplasts.
 2. Remove Mitochondria. 
 3. Removing ASVs from negative controls and also negative control samples.  
 4. Evaluate accuracy by looking at the Mock Community.  
-5. Remove samples without "enough" reads. 
+5. Check for reverse complements!
+6. Remove samples without "enough" reads. 
 
-Finally, write data file of phyloseq output, which will be stored in `data/02_PreProcessing/raw_preprocessed_phyloseq.RData`.  
+## Input 
+
+Here, we will process the data into a phyloseq object. 
+
+1. **Metadata**: We will need `data/metadata.csv` and the file we created and saved from `02_AssignASVs.Rmd` and is located at `data/01_DADA2/track_read_counts.RData`. 
+2. **ASV table**: We created and saved this file in `02_AssignASVs.Rmd` and it is located at `data/01_DADA2/ASV_table.tsv`. 
+3. **Taxonomy Table**: We created and saved this file in `02_AssignASVs.Rmd` and it is located at `data/01_DADA2/ASV_taxonomy.tsv`. 
+
+
+## Output
+
+1. We will write out a complex R data object known as an **S4** object, which in this case is known as a phyloseq output. We will store this in  `data/02_PreProcessing/raw_preprocessed_phyloseq.RData`.  
+
+
+# Set up the Environment 
+
+## Set the seeds and threads 
+
+```{r seed-threads}
+# Set the seed for reproducibility
+set.seed(238428)
+```
+
+## Timing of this script
+
+Let's record how long this file took to run on the class server, which we will record at the end of the script. 
+
+```{r rmd-start}
+# What time did we start running this script? 
+start_time <- Sys.time()
+```
+
+## Load packages  
+```{r load-libraries}
+# We will need BioStrings 
+#if (!require("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("Biostrings")
+
+# Now load everything else 
+pacman::p_load(devtools, phyloseq, Biostrings, tidyverse, dada2, install = FALSE)
+```
 
 
 # Load Data 
 
-## ASV Table
-```{r load-asv-table}
-# First, load asv table
-load("data/01_DADA2/ASV_counts.RData")
+##  1. Metadata
 
-# Inspect asv_tab
-head(asv_tab)[,1:5]
+Before starting this section, let's copy over the metadata 
 
-# Fix names 
-sample_names <- colnames(asv_tab)
-samples_fixed <- sapply(strsplit(basename(sample_names), "_"), `[`,1) 
-head(samples_fixed)
-
-# re-write the ASV count file to fix names 
-colnames(asv_tab) <- samples_fixed
-str(asv_tab)
-```
-
-##  Taxonomy Table
-```{r load-tax-table}
-tax_df <- read.table("data/01_DADA2/ASV_taxonomy.tsv", sep = "\t", skip = 1)
-head(tax_df)
-
-# fix column names 
-colnames(tax_df) <- c("asv_names", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species", "ASV", "ASVseq")
-
-head(tax_df)
-
-# Taxonomy Table Matrix
-tax_mat <- 
-  tax_df %>%
-  tibble::column_to_rownames(., var = "asv_names") %>%
-  as.matrix()
-```
+- Where to copy to? `SalinityGradient_16S/data`
+- Where to copy from?: `/workdir/in_class_data/SalinityGradient_16S/metadata.csv`
 
 
-##  Track Reads Data
 ```{r load-track-reads}
+# Load in the metadata
+metadata_df <- read_csv("data/metadata.csv", col_names = TRUE) %>%
+  # Add sample names to row names 
+  rename("sample_names" = "...1") %>%
+  # Let's also make a names column which will be used later to more easily access our sample names 
+  mutate(names = sample_names)
+
+# Inspect  
+head(metadata_df)
+dim(metadata_df)
+
+# Then, load in track reads 
 load("data/01_DADA2/track_read_counts.RData")
 
 # Take a look at the data
 head(track_counts_df)
 dim(track_counts_df)
 
-# Please in the terminal copy metadata.csv 
-# into: SalinityGradient_16S/data 
-# from: /workdir/in_class_data/SalinityGradient_16S/metadata.csv
+# Wait, the names are filenames! 
+head(track_counts_df$sample_names)
 
-# Load in metadata
-rm(metadata_df)
-metadata_df <- read.csv("data/metadata.csv")
-dim(metadata_df)
-colnames(metadata_df)
+# Fix the names! 
+track_counts_df$sample_names <- sapply(strsplit(track_counts_df$sample_names, "_"), `[`,1) 
 
+# Inspect to make sure it worked! 
+head(track_counts_df$sample_names)
 
-# Merge metadata_df with track_reads_df 
-head(metadata_df)
-head(track_counts_df)
+# Do they match?
+length(track_counts_df$sample_names)
+length(metadata_df$sample_names)
 
-metadata_track_reads_df <- 
+# It's not true! What's the difference? 
+#setdiff(track_counts_df$sample_names, metadata_df$sample_names)
+
+# Ohhh, this is an extra sample that accidentally got in. 
+## Let's remove this sample by using left join, which will only merge with what we have in our metadata!
+metadata_final_df <- 
   metadata_df %>%
-  left_join(., track_counts_df, by = "names") %>%
-  dplyr::select(-X)
+  left_join(., track_counts_df, by = "sample_names") %>%
+  # we need our sample names in rownames! 
+  column_to_rownames(var = "sample_names")
 
 # Intuition check 
-head(metadata_track_reads_df)
+dim(metadata_final_df)
+head(metadata_final_df)
+glimpse(metadata_final_df)
+```
 
-# Update row.names to be sample names 
-## Before 
-row.names(metadata_track_reads_df)
-# Rewrite 
-row.names(metadata_track_reads_df) <- metadata_track_reads_df$names
-# Check afterwards that it worked 
-row.names(metadata_track_reads_df)
-# intuition check
-head(metadata_track_reads_df)
+
+
+## 1. ASV Table
+```{r load-asv-table}
+# First, load asv table, df = dataframe
+asv_df <- read.delim(file = "data/01_DADA2/ASV_table.tsv", sep = "\t",
+                        # Add the column & row names
+                        header = TRUE, row.names = 1) %>%
+  # Remove that extra sample!
+  select(-"CJ.V08.P")
+
+# Inspect asv_df
+head(asv_df)[,1:5]
+dim(asv_df)
+
+# Let's fix sample names, ^X removes an X at the beginning of the name 
+colnames(asv_df) <- sub("^X", "", colnames(asv_df))
+# And fix the "." to be a "-" 
+  # Note that	"\\." → Matches a literal . (since . is a special character in regex)
+colnames(asv_df)  <- gsub("\\.", "-", colnames(asv_df) )
+  
+# Inspect asv_df
+head(colnames(asv_df)) # Now it looks good! 
+head(asv_df)[,1:5]
+```
+
+##  Taxonomy Table
+```{r load-tax-table}
+tax_df <- read.delim("data/01_DADA2/ASV_taxonomy.tsv", sep = "\t",
+                     # Add the column & row names
+                     header = TRUE, row.names = 1) 
+
+# Inspect
+head(tax_df)
+dim(tax_df)
+
+# Add a check to make sure ASV names match each other in the asv_df and the tax_df
+stopifnot(rownames(asv_df) == rownames(tax_df))
 ```
 
 
 # Handoff to phyloseq
 ```{r phyloseq-handoff}
 # double check it's all good 
-dim(asv_tab)
-dim(tax_mat)
+dim(asv_df)
+dim(tax_df)
 
-# Intuition check 
-stopifnot(row.names(asv_tab) == row.names(tax_mat))
+# The rownames need to between asv and tax tables
+head(row.names(asv_df))
+head(row.names(tax_df))
+stopifnot(row.names(asv_df) == row.names(tax_df))
+
+# The sample names need to match between metadata and asv tables
+head(colnames(asv_df))
+head(row.names(metadata_final_df))
+stopifnot(colnames(asv_df) == row.names(metadata_final_df))
 
 # Construct the phyloseq object 
-raw_physeq <- phyloseq(otu_table(asv_tab, taxa_are_rows = TRUE),
-                       sample_data(metadata_track_reads_df),
-                       tax_table(tax_mat))
+raw_physeq <- phyloseq(otu_table(asv_df, taxa_are_rows = TRUE),
+                       sample_data(metadata_final_df),
+                       # The taxonomy table needs to first be converted into a matrix
+                       tax_table(as.matrix(tax_df)))
+
+# Check the phyloseq object!
 raw_physeq
 
 # Save this raw phyloseq object 
@@ -152,19 +212,19 @@ save(raw_physeq, file = "data/02_PreProcessing/raw_physeq.RData")
 
 # Clean up the data
 
-Remove: 
+Now, we can do some more cleaning! We know that there are organelles in eukaryotes derived from microbes, which still have a 16S that will contaminate our samples. Let's remove those! 
 
 1. Chloroplasts
 2. mitochondria  
 
 ```{r rm-mitos-chloros}
-# Remind myself of tax table 
-#View(tax_mat)
+# Let's tak a quick look at the tax table 
+# View(tax_df) # Let's see where chloroplasts are and also mitochondria
 
 # Make new physeq without chloroplasts
 noChloros_physeq <- 
   raw_physeq %>% 
-  # rm chloroplasts
+  # rm chloroplasts, which are Order
   subset_taxa(Order != "Chloroplast" | is.na(Order))
   
 # How many taxa were chloroplasts? 
@@ -186,9 +246,10 @@ noChlorosMitos_physeq <-
 num_mito_ASVs <- ntaxa(noChloros_physeq) - ntaxa(noChlorosMitos_physeq)
 num_mito_ASVs
 
+# Let's take a quick look 
 noChlorosMitos_physeq
 
-# How many total asvs were removed from chloros and mitos 
+# How many total asvs were removed from chloros and mitos? 
 ntaxa(raw_physeq) - ntaxa(noChlorosMitos_physeq)
 # proportion of asvs kept? 
 ntaxa(noChlorosMitos_physeq)/ntaxa(raw_physeq)
@@ -196,18 +257,16 @@ ntaxa(noChlorosMitos_physeq)/ntaxa(raw_physeq)
 
 # Evaulate and remove the control samples 
 
-Take a look at the negative controls and then make a decision about whether or not to remove the ASVs that we found in our controls 
+Now, let's take a look at the negative controls and then make a decision about whether or not to remove the ASVs that we found in our controls 
 
 1. Negative controls 
 2. ASVs found within the negative controls and their distribution in the samples. 
 3. Evaluate the mock community 
 
-
 ## Negative Controls 
 ```{r neg-controls}
 # create a vector of samples that were negative controls 
-control_samples <- c("WaterControl", "022um-Control", 
-                     "3um-Control", "DNA-Ext-Control")
+control_samples <- c("WaterControl", "022um-Control", "3um-Control", "DNA-Ext-Control")
 
 # Make a new phyloseq object of only the control samples 
 control_physeq <- 
@@ -216,6 +275,7 @@ control_physeq <-
   # force remove ASVs with 0 counts 
   prune_taxa(taxa_sums(.) > 0, .)
 
+# Let's take a look
 control_physeq
 
 # vector of control asvs
@@ -243,14 +303,14 @@ controlASV_physeq
 controlASV_physeq %>%
   plot_bar(., "ASV", fill = "ASV", facet_grid = Sample_or_Control~.)
 
-# Check tax of ASV_3
+# Check tax of ASV_0003
 #controlASV_physeq %>%
 #  tax_table() %>%
 #  data.frame() %>%
 #  View()
 
 # Would only like to keep ASV_18 and ASV_56, everything else is trash
-controlASVs_toREMOVE <- dplyr::setdiff(control_ASVs$ASV, c("ASV_18", "ASV_56"))
+controlASVs_toREMOVE <- dplyr::setdiff(control_ASVs$ASV, c("ASV_0017", "ASV_0050"))
 # double check 
 length(controlASVs_toREMOVE)
 
@@ -275,6 +335,8 @@ total_ASVs_rm
 - make a mock phyloseq object
 - load in the standard fasta sequences of the mock community  
 - test for differences between the two 
+
+
 ```{r}
 # Make mock phyloseq object 
 mock_physeq <- 
@@ -298,8 +360,9 @@ mock_seqs <-
   mock_physeq %>%
   tax_table() %>%
   data.frame() %>%
-  dplyr::select(ASV, ASVseq) 
-# Inpsect
+  dplyr::select(ASV, ASVseqs) 
+
+# Inspect
 head(mock_seqs)
 
 # Which ASVs match the reference? 
@@ -307,7 +370,7 @@ matched_asvs <-
   mock_seqs %>%
   rowwise() %>%
   # check each ASV if they match, TRUE, if not = FALSE
-  mutate(Match = any(grepl(ASVseq, mock_ref))) %>%
+  mutate(Match = any(grepl(ASVseqs, mock_ref))) %>%
   # Create a vector of names that matched 
   pull(ASV)
 
@@ -315,7 +378,6 @@ matched_asvs <-
 # Evaluate which ones do NOT match?? 
 # What's their abundances? 
 # This help provide error rate 
-
 cat(length(matched_asvs), "ASVs were exact matches to the expected reference sequence.")
 
 # How many sequences were in the mock? 
@@ -354,12 +416,54 @@ noControlsMock_ChlorosMitos_physeq <-
   # remove the ASVs from the mock 
   subset_taxa(., !(ASV %in% matched_asvs))
 
+# Inspect
 noControlsMock_ChlorosMitos_physeq
 
 # Intuition Check 
 num_ASVs_mock <- ntaxa(noControlsChlorosMitos_physeq) - ntaxa(noControlsMock_ChlorosMitos_physeq)
+
 # Check 
 stopifnot(num_ASVs_mock == 8)
+```
+
+
+# Reverse Complements 
+
+```{r reverse-complements}
+# Pull out Taxa Table
+tax_table <- 
+  noControlsChlorosMitos_physeq %>%
+  tax_table() %>% 
+  data.frame()
+
+# Grab ASV Sequences and Names
+asv_names <- tax_table$ASV
+asv_seqs <- tax_table$ASVseqs
+
+# Create empty comparison matrix
+asv_rev_comp <- matrix(nrow=length(asv_seqs), ncol = length(asv_seqs)) 
+
+# Fix the names in the rows and columns 
+rownames(asv_rev_comp) <- asv_names
+colnames(asv_rev_comp) <- asv_names
+
+# Convert sequences to Biostrings
+asv_dna <- DNAStringSet(asv_seqs) 
+
+# Inspect 
+head(asv_dna)
+
+# Construct reverse complement
+asv_rev_dna <- reverseComplement(asv_dna) 
+
+# Now loop through every asv sequence to check 
+for(i in 1:length(asv_seqs)){ # For each asv sequence...
+  match_vec <- asv_dna[i] == asv_rev_dna # Compare it to the reverse complement of every other sequence...
+  asv_rev_comp[,i] <- match_vec # Write that logical vector as a new column 
+}
+
+# Find how many TRUEs (matches) we have, divide by 2 because each pair occurs twice
+cat("For", sum(asv_rev_comp) / 2,"ASVs, the reverse complement will need to be removed") 
 ```
 
 
@@ -377,7 +481,7 @@ seqSums_df <-
   colSums() %>%
   data.frame() %>%
   rownames_to_column(var = "names") %>%
-  left_join(., metadata_track_reads_df, by = "names") 
+  left_join(., metadata_final_df, by = "names") 
 
 # Rename second column 
 colnames(seqSums_df)[2] <- "TotalSeqs"
@@ -392,16 +496,25 @@ seqSums_df %>%
   arrange(TotalSeqs) %>%
   head()
 
-# plot it! 
+# plot it as a bar plot 
 seqSums_df %>%
   ggplot(aes(x=reorder(names, TotalSeqs), y = TotalSeqs,
              fill = station)) + 
-  geom_bar(stat = "identity") 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_blank()) + 
+  labs(y = "Read Depth", x = "Sample")
+
+# histogram
+seqSums_df %>%
+  ggplot(aes(x= TotalSeqs, fill = station)) + 
+  geom_histogram(color = "black") + 
+  labs(y = "# of Samples", x = "Read Depth")
 
 # Density plot 
 seqSums_df %>%
   ggplot(aes(TotalSeqs, fill = station)) +
-  geom_density(alpha = 0.5)
+  geom_density(alpha = 0.5) + 
+  labs(x = "Read Depth")
 ```
 
 # Remove samples with few reads 
@@ -417,20 +530,38 @@ raw_preprocessed_physeq <-
 
 #What's the new min seq depth?
 min(sample_sums(raw_preprocessed_physeq))
+
+# Final check of the sequencing depth for now
+# Here, we could remove more samples if we needed to
+seqSums_df %>%
+  dplyr::select(names, TotalSeqs) %>%
+  arrange(TotalSeqs)
 ```
 
 # Save Preprocessed Phyloseq Object
 ```{r save-physeq}
-save(raw_preprocessed_physeq,
-     file = "data/02_PreProcessing/raw_preprocessed_physeq.RData")
+save(raw_preprocessed_physeq, file = "data/02_PreProcessing/raw_preprocessed_physeq.RData")
 ```
 
-# Session Information 
+# Final info for Reproducibility 
+
+## Check Render Time
+```{r stop-time}
+# Take the time now that we are at the end of the script
+end_time <- Sys.time()
+end_time 
+
+# Echo the elapsed time
+elapsed_time <- round((end_time - start_time), 3)
+elapsed_time
+```
+
+## Session Information
+
 ```{r session-info}
-# Ensure reproducibility 
+# Ensure reproducibility with package version information
 devtools::session_info()
 ```
-
 
 
 
