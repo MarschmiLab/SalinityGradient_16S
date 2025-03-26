@@ -88,8 +88,12 @@ set.seed(238428)
 
 ## Load Packages & Colors
 ```{r load-packages}
+# install ggpubr
+#if(!require(devtools)) install.packages("devtools")
+#devtools::install_github("kassambara/ggpubr")
+
 # Efficiently load packages 
-pacman::p_load(tidyverse, devtools, patchwork, iNEXT, phyloseq,
+pacman::p_load(tidyverse, devtools, patchwork, iNEXT, phyloseq, ggpubr,
                install = FALSE)
 
 # Load in colors for plotting between different files
@@ -253,7 +257,10 @@ iNEXT_manual_df <-
   # Add colors to data frame
   left_join(., data.frame(station_colors = station_colors,
                           station = names(station_colors)),
-            by = "station") 
+            by = "station") %>%
+  mutate(station = factor(station, levels = c("Copano West", "Copano East", 
+                                              "Mesquite Bay", "Aransas Bay", 
+                                              "Shipping Channel")))
 # Inspect 
 dim(iNEXT_manual_df)
 str(iNEXT_manual_df)
@@ -312,7 +319,11 @@ obs_div_df <-
   dplyr::filter(Method == "Observed") %>%
   left_join(data.frame(station_names = station_names, 
                        station = names(station_names)), 
-                       by = "station")
+                       by = "station") %>%
+  mutate(station_names = factor(station_names, 
+                                levels = c("Copano\nWest", "Copano\nEast", 
+                                           "Mesquite\nBay", "Aransas\nBay", 
+                                           "Shipping\nChannel")))
 
 # Check it 
 head(obs_div_df)
@@ -341,16 +352,41 @@ We can draw that:
 - **Mesquite Bay** appears to have the lowest Shannon and Simpson diversity, indicating that it has fewer common/dominant taxa compared to other communities.  
 - **Copano West** seems to have the highest Shannon and Simpson Diversity *and* the highest amount of variation. Though, we'd also need to follow this up with a test!  
 
-# Statistical tests
+## Richness - Statistical Testing
 
-```{r}
-# Add the statistical test! 
-kruskal_stations_df <- 
+```{r richness-stats}
+# Make a richness data frame
+richness_df <- 
   obs_div_df %>%
-  # Group by hill number
-  group_by(Order.q) %>%
-  # Run a kruskall wallis test on the hill number by station
-  summarize(p.value = kruskal.test(qD ~ station_names)$p.value)
+  dplyr::filter(Method == "Observed") %>%
+  dplyr::filter(Order.q == 0)
+
+# Add the statistical test! 
+kruskal.test(qD ~ station_names, data = richness_df)
+
+# 
+my_comparisons <- list( c("Copano\nWest", "Copano\nEast"), c("Copano\nWest", "Mesquite\nBay"), 
+                        c("Copano\nWest", "Aransas\nBay"), c("Copano\nWest", "Shipping\nChannel"),
+                        c("Copano\nEast", "Mesquite\nBay"), c("Copano\nEast", "Aransas\nBay"),
+                        c("Copano\nEast", "Shipping\nChannel"), c("Mesquite\nBay", "Aransas\nBay"),
+                        c("Mesquite\nBay", "Shipping\nChannel"), c("Aransas\nBay", "Shipping\nChannel"))
+
+# Now, plot it!
+richness_df %>%
+  ggplot(aes(x = station_names, y = qD, fill = station, color = station)) + 
+  geom_jitter(size = 2.5) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + 
+  scale_color_manual(values = station_colors) + 
+  scale_fill_manual(values = station_colors) + 
+  labs(y = "Effective Number of ASVs") + 
+  # Add pairwise comparisons p-value
+  stat_compare_means(comparisons = my_comparisons,
+                     tip.length = 0, hide.ns = TRUE) + 
+  stat_compare_means(label.y = 50)  +   # Add global p-value
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        legend.title = element_blank())
 ```
 
 
@@ -415,7 +451,7 @@ Here, there appears to be a few different results:
 ```{r richness-vs-salinity}
 # Make a richness data frame
 richness_df <- 
-  iNEXT_manual_df %>%
+  obs_div_df %>%
   dplyr::filter(Method == "Observed") %>%
   dplyr::filter(Order.q == 0)
 
@@ -448,7 +484,7 @@ In the output:
     - When comparing models, we always want to take the model with the higher F-statistic because it indicates a stronger relationship between the predictor varaibles and the dependent variables, suggesting that the model is better. 
 
 
-```{r plot-richness-sal, fig.height=4, fig.width=4}
+```{r plot-richness-sal, fig.height=4, fig.width=4, warning = FALSE}
 richness_df %>% 
   ggplot(aes(x = salinity_psu, y = qD)) + 
   geom_point(aes(color = station)) + 
